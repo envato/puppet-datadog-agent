@@ -27,6 +27,8 @@
 #       schema size metrics
 #   $disable_innodb_metrics
 #       disable innodb metrics, used with older versions of MySQL without innodb engine support.
+#   $queries
+#       Custom metrics based on MySQL query
 # Sample Usage:
 #
 #  class { 'datadog_agent::integrations::mysql' :
@@ -34,27 +36,90 @@
 #    password => 'some_pass',
 #    user     => 'datadog'
 #  }
+# Sample Usage (Instance):
+#  class { 'datadog_agent::integrations::mysql' :
+#    instances => [{
+#      host                      => 'localhost',
+#      password                  => 'mypassword',
+#      user                      => 'datadog',
+#      port                      => '3306',
+#      tags                      => ['instance:mysql1'],
+#      replication               => '0',
+#      galera_cluster            => '0',
+#      extra_status_metrics      => 'true',
+#      extra_innodb_metrics      => 'true',
+#      extra_performance_metrics => 'true',
+#      schema_size_metrics       => 'true', 
+#      disable_innodb_metrics    => 'false',
+#      queries                   => [
+#        {
+#          query  => 'SELECT TIMESTAMPDIFF(second,MAX(create_time),NOW()) as last_accessed FROM requests',
+#          metric => 'app.seconds_since_last_request',
+#          type   => 'gauge',
+#          field  => 'last_accessed',
+#        },
+#      ],
+#    }
+#  }
 #
 #
 class datadog_agent::integrations::mysql(
-  $password,
-  $host = 'localhost',
-  $user = 'datadog',
-  $sock = undef,
-  $tags = [],
-  $replication = '0',
-  $galera_cluster = '0',
-  $extra_status_metrics = false,
-  $extra_innodb_metrics = false,
-  $extra_performance_metrics = false,
-  $schema_size_metrics = false,
-  $disable_innodb_metrics = false,
+  String $host                             = 'localhost',
+  Optional[String] $user                   = 'datadog',
+  Optional[Variant[String, Integer]] $port = 3306,
+  Optional[String] $password               = undef,
+  Optional[String] $sock                   = undef,
+  Array $tags                              = [],
+  $replication                             = '0',
+  $galera_cluster                          = '0',
+  Boolean $extra_status_metrics            = false,
+  Boolean $extra_innodb_metrics            = false,
+  Boolean $extra_performance_metrics       = false,
+  Boolean $schema_size_metrics             = false,
+  Boolean $disable_innodb_metrics          = false,
+  Optional[Array] $queries                 = [],
+  Optional[Array] $instances               = undef,
   ) inherits datadog_agent::params {
   include datadog_agent
 
-  validate_array($tags)
+  validate_legacy('Optional[String]', 'validate_string', $sock)
+  validate_legacy('Array', 'validate_array', $tags)
 
-  file { "${datadog_agent::params::conf_dir}/mysql.yaml":
+  if ($host == undef and $sock == undef) or
+    ($host != undef and $port == undef and $sock == undef) {
+    fail('invalid MySQL configuration')
+  }
+
+  if !$instances and $host {
+    $_instances = [{
+      'host'                      => $host,
+      'password'                  => $password,
+      'user'                      => $user,
+      'port'                      => $port,
+      'sock'                      => $sock,
+      'tags'                      => $tags,
+      'replication'               => $replication,
+      'galera_cluster'            => $galera_cluster,
+      'extra_status_metrics'      => $extra_status_metrics,
+      'extra_innodb_metrics'      => $extra_innodb_metrics,
+      'extra_performance_metrics' => $extra_performance_metrics,
+      'schema_size_metrics'       => $schema_size_metrics,
+      'disable_innodb_metrics'    => $disable_innodb_metrics,
+      'queries'                   => $queries,
+    }]
+  } elsif !$instances{
+    $_instances = []
+  } else {
+    $_instances = $instances
+  }
+
+  if !$::datadog_agent::agent5_enable {
+    $dst = "${datadog_agent::conf6_dir}/mysql.yaml"
+  } else {
+    $dst = "${datadog_agent::conf_dir}/mysql.yaml"
+  }
+
+  file { $dst:
     ensure  => file,
     owner   => $datadog_agent::params::dd_user,
     group   => $datadog_agent::params::dd_group,

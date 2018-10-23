@@ -9,17 +9,20 @@ end
 
 Puppet::Reports.register_report(:datadog_reports) do
 
-  configfile = "/etc/dd-agent/datadog.yaml"
+  configfile = "/etc/datadog-agent/datadog-reports.yaml"
   raise(Puppet::ParseError, "Datadog report config file #{configfile} not readable") unless File.readable?(configfile)
   config = YAML.load_file(configfile)
   API_KEY = config[:datadog_api_key]
 
   # if need be initialize the regex
-  HOSTNAME_EXTRACTION_REGEX = config[:hostname_extraction_regex]
-  begin
-    HOSTNAME_EXTRACTION_REGEX = Regexp.new HOSTNAME_EXTRACTION_REGEX unless HOSTNAME_EXTRACTION_REGEX.nil?
-  rescue
-    raise(Puppet::ParseError, "Invalid hostname_extraction_regex #{HOSTNAME_EXTRACTION_REGEX}")
+  if !config[:hostname_extraction_regex].nil?
+    begin
+      HOSTNAME_EXTRACTION_REGEX = Regexp.new config[:hostname_extraction_regex]
+    rescue
+      raise(Puppet::ParseError, "Invalid hostname_extraction_regex #{HOSTNAME_REGEX}")
+    end
+  else
+    HOSTNAME_EXTRACTION_REGEX = nil
   end
 
   desc <<-DESC
@@ -108,13 +111,15 @@ Puppet::Reports.register_report(:datadog_reports) do
 
     Puppet.debug "Sending metrics for #{@msg_host} to Datadog"
     @dog = Dogapi::Client.new(API_KEY)
-    self.metrics.each { |metric,data|
-      data.values.each { |val|
-        name = "puppet.#{val[1].gsub(/ /, '_')}.#{metric}".downcase
-        value = val[2]
-        @dog.emit_point("#{name}", value, :host => "#{@msg_host}")
+    @dog.batch_metrics do
+      self.metrics.each { |metric,data|
+        data.values.each { |val|
+          name = "puppet.#{val[1].gsub(/ /, '_')}.#{metric}".downcase
+          value = val[2]
+          @dog.emit_point("#{name}", value, :host => "#{@msg_host}")
+        }
       }
-    }
+    end
 
     Puppet.debug "Sending events for #{@msg_host} to Datadog"
     @dog.emit_event(Dogapi::Event.new(event_data,

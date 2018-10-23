@@ -9,20 +9,40 @@
 # Sample Usage:
 #
 #   class { 'datadog_agent::integrations::haproxy' :
-#     url   => 'http://localhost:8080',
-#     creds => { username => 'admin',
-#                password => 'password',
-#              },
+#     url     => 'http://localhost:8080',
+#     creds   => { username => 'admin',
+#                  password => 'password',
+#                },
+#     options => { collect_aggregates_only => 'False' },
 #   }
 #
 class datadog_agent::integrations::haproxy(
-  $creds = {},
-  $url   = "http://${::ipaddress}:8080",
+  $creds     = {},
+  $url       = "http://${::ipaddress}:8080",
+  $options   = {},
+  $instances = undef,
 ) inherits datadog_agent::params {
   include datadog_agent
 
-  file {
-    "${datadog_agent::params::conf_dir}/haproxy.yaml":
+  if !$instances and $url {
+    $_instances = [{
+      'creds'   => $creds,
+      'url'     => $url,
+      'options' => $options,
+    }]
+  } elsif !$instances {
+    $_instances = []
+  } else {
+    $_instances = $instances
+  }
+
+  if !$::datadog_agent::agent5_enable {
+    $dst = "${datadog_agent::conf6_dir}/haproxy.yaml"
+  } else {
+    $dst = "${datadog_agent::conf_dir}/haproxy.yaml"
+  }
+
+  file { $dst:
       ensure  => file,
       owner   => $datadog_agent::params::dd_user,
       group   => $datadog_agent::params::dd_group,
